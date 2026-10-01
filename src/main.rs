@@ -7,7 +7,6 @@ use std::{pin, thread, time};
 use crate::waker::IdkWhatImDoing;
 
 pub mod executor;
-pub mod waker;
 
 fn main() {
     let fuck_this_shit = is_this_just_state_for_the_future_bullshit_stuff_question_mark::new();
