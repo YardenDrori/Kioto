@@ -1,73 +1,81 @@
 use std::{
-    ops::{Deref, DerefMut},
     sync::{Arc, Mutex},
     task::{
         Context,
-        Poll::{self, Ready},
+        Poll::{self},
         Waker,
     },
 };
 
-use crate::executor::{
-    task::{Task, TaskState},
-    waker::MyWaker,
-};
+use crate::executor::task::{Task, TaskState, replace_state_locked, set_state_locked};
 
 pub struct Executor {
     //Mutex<Vec<...>> - the queue can live in multiple threads for stealing work thus we make it as such
     //Arc<Mutex<Task>> - task can live in multiple threads because of select!() for instance read io and timer (for a
     //timeout of the request) both running in paralell thus seperate threads while also being part of
     //the same task
-    pub tasks_sct: Mutex<Vec<Arc<Task>>>,
+    pub task_queue: Mutex<Vec<Arc<Task>>>,
+
+    //PERF: this field exists to avoid locking the queue twice per poll
+    task_to_queue: Option<Arc<Task>>,
 }
 
 impl Executor {
-    pub fn register_task(self: &Self, task: Arc<Task>) {
-        let mut task_state = task.task_state.lock().unwrap();
-        *task_state = TaskState::QUEUED;
-        drop(task_state);
-
-        let mut tasks = self.tasks_sct.lock().expect("lock is poisoned");
-        tasks.push(task);
-    }
-
     fn new() -> Arc<Self> {
         return Arc::new(Executor {
-            tasks_sct: Mutex::new(Vec::new()),
+            task_queue: Mutex::new(Vec::new()),
+            task_to_queue: None,
         });
     }
 
-    fn poll_task(self: &Self) {
-        //lock the queue
-        let mut tasks = self.tasks_sct.lock().expect("lock is poisoned");
-        let Some(mut task) = tasks.pop() else {
+    fn pop_task(&mut self) -> Option<Arc<Task>> {
+        let mut tasks = self.task_queue.lock().expect("lock is poisoned");
+
+        if let Some(task) = Option::take(&mut self.task_to_queue) {
+            return Some(task);
+        }
+
+        tasks.pop()
+    }
+
+    pub fn register_task(self: &Self, task: Arc<Task>) {
+        let mut tasks = self.task_queue.lock().expect("lock is poisoned");
+        tasks.push(task);
+    }
+
+    fn poll_task(self: &mut Self) {
+        let Some(task) = self.pop_task() else {
+            //TODO: steal task from other executors
             return;
         };
-        //release the queue
-        drop(tasks);
 
-        //PERF: inefficient atomic operation
+        if !task.replace_state(TaskState::QUEUED, TaskState::RUNNING) {
+            return;
+        }
+
         let waker = Waker::from(task.clone());
 
-        //lock the task
-        let mut task_state = task.task_state.lock().unwrap();
-        *task_state = TaskState::PENDING;
-        drop(task_state);
+        let poll = task
+            .future
+            .lock()
+            .unwrap()
+            .as_mut()
+            .poll(&mut Context::from_waker(&waker));
 
-        if matches!(
-            task.future
-                .lock()
-                .unwrap()
-                .as_mut()
-                .poll(&mut Context::from_waker(&waker)),
-            Poll::Ready(_)
-        ) {
-            let mut task_state = task.task_state.lock().unwrap();
-            *task_state = TaskState::DONE;
-            drop(task_state);
+        match poll {
+            Poll::Ready(_) => {
+                task.set_state(TaskState::DONE);
+            }
+            Poll::Pending => {
+                let mut lock = task.task_state.lock().unwrap();
+                if replace_state_locked(&mut lock, TaskState::ALERTED, TaskState::QUEUED) {
+                    drop(lock);
+                    self.task_to_queue = Some(task);
+                } else {
+                    set_state_locked(&mut lock, TaskState::IDLE);
+                }
+            }
         }
         //release the lock
-        //if a waker wanted to call wake while for this task it would NOW be able to do so
-        //PERF: this blocks a worker thread for potentially the entire poll duration
     }
 }
