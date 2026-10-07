@@ -10,13 +10,13 @@ use crate::executor::{executor::Executor, task::queue_new_task};
 pub mod executor;
 
 fn main() {
-    let executor = Executor::new();
-
-    do_the_thing(&executor);
-    do_the_thing(&executor);
-    do_the_thing(&executor);
-
+    let executor_raw = Executor::new();
     let thread = thread::spawn(move || {
+        let mut executor = Arc::new(executor_raw);
+        executor.update_thread();
+        do_the_thing(&executor);
+        do_the_thing(&executor);
+        do_the_thing(&executor);
         executor.loop_tasks();
     });
 
@@ -55,7 +55,7 @@ impl Future for WAIT {
 
                 println!("not done 2");
 
-                //NOTE: no reactor yet
+                // NOTE: no reactor yet
                 let cx_c = cx.waker().clone();
                 thread::spawn(move || {
                     thread::sleep(Duration::from_secs(3));

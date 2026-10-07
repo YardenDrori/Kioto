@@ -5,28 +5,43 @@ use std::{
         Poll::{self},
         Waker,
     },
+    thread::{self, current, park},
 };
 
 use crate::executor::task::{Task, TaskState, replace_state_locked, set_state_locked};
 
 pub struct Executor {
-    //Mutex<Vec<...>> - the queue can live in multiple threads for stealing work thus we make it as such
-    //Arc<Mutex<Task>> - task can live in multiple threads because of select!() for instance read io and timer (for a
-    //timeout of the request) both running in paralell thus seperate threads while also being part of
-    //the same task
     pub task_queue: Mutex<Vec<Arc<Task>>>,
 
     //PERF: this field exists to avoid locking the queue twice per poll
     task_to_queue: Mutex<Option<Arc<Task>>>,
+    thread: thread::Thread,
     // TODO: refs to other executors
 }
 
 impl Executor {
-    pub fn new() -> Arc<Self> {
-        return Arc::new(Executor {
+    pub fn new() -> Self {
+        println!("thread id registered: {:?}", thread::current().id());
+        return Executor {
             task_queue: Mutex::new(Vec::new()),
             task_to_queue: Mutex::new(None),
-        });
+            thread: thread::current(), //temp, might change in future
+        };
+    }
+
+    // HACK:
+    pub fn update_thread(self: &mut Arc<Self>) {
+        let Some(executor) = Arc::get_mut(self) else {
+            panic!("temp error msg");
+        };
+        executor.thread = current();
+    }
+
+    fn wake(&self) {
+        println!("goood morning");
+
+        println!("thread id awoken: {:?}", thread::current().id());
+        self.thread.unpark();
     }
 
     pub fn loop_tasks(self: Arc<Self>) {
@@ -41,6 +56,7 @@ impl Executor {
     }
 
     pub fn push_task(&self, task: Arc<Task>) {
+        self.wake();
         let mut tasks = self.task_queue.lock().expect("lock is poisoned");
         tasks.push(task);
     }
@@ -58,6 +74,8 @@ impl Executor {
     fn poll_task(&self, task_to_queue_lock: &mut MutexGuard<Option<Arc<Task>>>) {
         let Some(task) = self.pop_task(task_to_queue_lock) else {
             //TODO: steal task from other executors
+            println!("goood night");
+            park();
             return;
         };
 

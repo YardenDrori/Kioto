@@ -40,6 +40,7 @@ pub fn replace_state_locked(
 
 impl Wake for Task {
     fn wake(self: Arc<Self>) {
+        println!("BEEP BEEP BEEP");
         let mut lock = self.task_state.lock().unwrap();
         if replace_state_locked(&mut lock, TaskState::IDLE, TaskState::QUEUED) {
             drop(lock);
