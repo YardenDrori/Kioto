@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex},
     task::{
         Context,
         Poll::{self},
@@ -11,10 +11,10 @@ use std::{
 use crate::waker::queued_task::{Task, TaskState, replace_state_locked, set_state_locked};
 
 pub struct Executor {
+    // TODO: change data structure
     pub task_queue: Mutex<Vec<Arc<Task>>>,
 
-    //PERF: this field exists to avoid locking the queue twice per poll
-    task_to_queue: Mutex<Option<Arc<Task>>>,
+    // BUG: issue of creator of the executor not updating thread when moving executor to its own thread
     thread: thread::Thread,
     // TODO: refs to other executors for work stealing
 }
@@ -24,7 +24,6 @@ impl Executor {
         println!("thread id registered: {:?}", thread::current().id());
         return Executor {
             task_queue: Mutex::new(Vec::new()),
-            task_to_queue: Mutex::new(None),
             thread: thread::current(), //temp, might change in future
         };
     }
@@ -37,25 +36,23 @@ impl Executor {
     }
 
     pub fn loop_tasks(self: Arc<Self>) {
-        // INFO: this needs to be a mutex because an executor lives as a ref in all other executors
-        // for work stealing but only the executor's main thread is allowed to interact with the
-        // task_to_queue variable thus we lock it only once and pass that lock
-        let mut task_to_queue_lock = self.task_to_queue.lock().unwrap();
+        //PERF: this field exists to avoid locking the queue twice per poll
+        let mut task_to_queue: Option<Arc<Task>> = None;
 
         loop {
-            self.poll_task(&mut task_to_queue_lock);
+            self.poll_task(&mut task_to_queue);
         }
         // TODO: add exit condition
     }
 
     pub fn push_task(&self, task: Arc<Task>) {
-        self.wake();
         let mut tasks = self.task_queue.lock().expect("lock is poisoned");
         tasks.push(task);
+        self.wake();
     }
 
-    fn pop_task(&self, task_to_queue_lock: &mut MutexGuard<Option<Arc<Task>>>) -> Option<Arc<Task>> {
-        if let Some(task) = Option::take(&mut **task_to_queue_lock) {
+    fn pop_task(&self, task_to_queue: &mut Option<Arc<Task>>) -> Option<Arc<Task>> {
+        if let Some(task) = Option::take(task_to_queue) {
             return Some(task);
         }
 
@@ -64,8 +61,8 @@ impl Executor {
         tasks.pop()
     }
 
-    fn poll_task(&self, task_to_queue_lock: &mut MutexGuard<Option<Arc<Task>>>) {
-        let Some(task) = self.pop_task(task_to_queue_lock) else {
+    fn poll_task(&self, task_to_queue_ref: &mut Option<Arc<Task>>) {
+        let Some(task) = self.pop_task(task_to_queue_ref) else {
             //TODO: steal task from other executors
             println!("goood night");
             park();
@@ -97,8 +94,7 @@ impl Executor {
                 let mut lock = task.task_state.lock().unwrap();
                 if replace_state_locked(&mut lock, TaskState::ALERTED, TaskState::QUEUED) {
                     drop(lock);
-                    **task_to_queue_lock = Some(task);
-                    // self.task_to_queue = Some(task);
+                    *task_to_queue_ref = Some(task);
                 } else {
                     set_state_locked(&mut lock, TaskState::IDLE);
                 }
