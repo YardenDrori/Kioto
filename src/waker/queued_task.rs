@@ -6,6 +6,7 @@ use std::{
 
 use crate::executor::executor::Executor;
 
+// TODO: replace this in favor of an AtomicU8 to save perf on mutex aquisitions
 #[derive(PartialEq)]
 pub enum TaskState {
     QUEUED,  // in the queue, waiting to be polled
@@ -18,6 +19,8 @@ pub enum TaskState {
 pub struct Task {
     pub future: Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>,
     pub task_state: Mutex<TaskState>,
+
+    // TODO: make this a list of executors with a cheap way to pick the emptieset one
     executor: Weak<Executor>,
 }
 
@@ -38,6 +41,16 @@ pub fn replace_state_locked(
     return false;
 }
 
+// TODO: push to the emptiest executor
+pub fn queue_new_task(fut: Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>, executor: &Arc<Executor>) {
+    let task = Arc::new(Task {
+        future: fut,
+        task_state: Mutex::new(TaskState::QUEUED),
+        executor: Arc::downgrade(&executor),
+    });
+    task.enqueue_self();
+}
+
 impl Wake for Task {
     fn wake(self: Arc<Self>) {
         println!("BEEP BEEP BEEP");
@@ -54,24 +67,28 @@ impl Wake for Task {
     }
 }
 
-pub fn queue_new_task(fut: Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>, executor: &Arc<Executor>) {
-    let task = Arc::new(Task {
-        future: fut,
-        task_state: Mutex::new(TaskState::QUEUED),
-        executor: Arc::downgrade(&executor),
-    });
-    task.enqueue_self();
-}
-
 impl Task {
-    ///blocking
-    pub fn set_state(self: &Arc<Self>, state: TaskState) {
+    //example docs
+    ///sets the task's state to the provided value.
+    ///Blocking.
+    ///
+    ///
+    ///also see:
+    ///```rust
+    ///pub fn replace_state(&self, state_to_replace: TaskState, new_state: TaskState) -> bool {
+    ///pub fn swap_state(&self, new_state: TaskState) -> TaskState {
+    ///```
+    pub fn set_state(&self, state: TaskState) {
         let mut lock = self.task_state.lock().unwrap();
         set_state_locked(&mut lock, state);
     }
     pub fn replace_state(&self, state_to_replace: TaskState, new_state: TaskState) -> bool {
         let mut lock = self.task_state.lock().unwrap();
         replace_state_locked(&mut lock, state_to_replace, new_state)
+    }
+    pub fn swap_state(&self, new_state: TaskState) -> TaskState {
+        let mut lock = self.task_state.lock().unwrap();
+        std::mem::replace(&mut *lock, new_state)
     }
 
     fn enqueue_self(self: Arc<Self>) {

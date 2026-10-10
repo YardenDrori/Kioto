@@ -77,6 +77,12 @@ impl Executor {
             return;
         }
 
+        let old_state = task.swap_state(TaskState::RUNNING);
+        debug_assert!(
+            old_state == TaskState::QUEUED,
+            "Queue had a task in a non queued status"
+        );
+
         let waker = Waker::from(task.clone());
 
         let poll = task
