@@ -8,9 +8,9 @@ use std::{
     thread::{self, current, park},
 };
 
-use crate::executor::task::{Task, TaskState, replace_state_locked, set_state_locked};
+use crate::task::queued_task::{Task, TaskState, replace_state_locked, set_state_locked};
 
-pub struct Executor {
+pub(crate) struct Executor {
     pub task_queue: Mutex<Vec<Arc<Task>>>,
 
     //PERF: this field exists to avoid locking the queue twice per poll

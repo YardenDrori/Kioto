@@ -1,35 +1,29 @@
 use std::{
-    pin::Pin,
-    sync::{Arc, Mutex},
     task::Poll::{Pending, Ready},
     thread,
     time::{Duration, Instant},
 };
 
-use crate::executor::{executor::Executor, task::queue_new_task};
-pub mod executor;
+use kioto::block_on;
 
 fn main() {
-    let executor_raw = Executor::new();
-    let thread = thread::spawn(move || {
-        let mut executor = Arc::new(executor_raw);
-        executor.update_thread();
-        do_the_thing(&executor);
-        do_the_thing(&executor);
-        do_the_thing(&executor);
-        executor.loop_tasks();
-    });
+    // let executor_raw = Executor::new();
+    // let thread = thread::spawn(move || {
+    //     let mut executor = Arc::new(executor_raw);
+    //     executor.update_thread();
+    //     do_the_thing(&executor);
+    //     do_the_thing(&executor);
+    //     do_the_thing(&executor);
+    //     executor.loop_tasks();
+    // });
+    //
+    // thread.join().unwrap();
 
-    thread.join().unwrap();
-}
-
-fn do_the_thing(executor: &Arc<Executor>) {
-    let thing: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin(sleep());
-    let fut = Mutex::new(thing);
-    queue_new_task(fut, &executor);
+    block_on(sleep());
 }
 
 //wait 3 seconds, print the input number, wait 3 seconds, print the input num times 2
+// let the rust compiler build state machine
 async fn sleep() {
     println!("not done 1");
 
@@ -38,6 +32,7 @@ async fn sleep() {
     println!("done 1")
 }
 
+//manual state machine -- will be the leafs of all async method stack
 enum WAIT /*3 seconds*/ {
     BEGUN(Instant),
 }
