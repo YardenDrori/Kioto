@@ -8,7 +8,7 @@ use std::{
     thread::{self, park},
 };
 
-use crate::task::queued_task::{Task, TaskState, replace_state_locked, set_state_locked};
+use crate::waker::queued_task::{Task, TaskState, replace_state_locked, set_state_locked};
 
 pub struct Executor {
     pub task_queue: Mutex<Vec<Arc<Task>>>,

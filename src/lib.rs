@@ -5,9 +5,10 @@ use std::{
     thread::park,
 };
 
-use crate::task::independent_task::BlockingWaker;
+use crate::waker::blocking_waker::BlockingWaker;
+
 pub mod executor;
-pub mod task;
+pub mod waker;
 
 pub fn block_on(fut: impl Future<Output = ()>) {
     let mut pinned_fut = pin::pin!(fut);
