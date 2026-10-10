@@ -5,18 +5,18 @@ use std::{
         Poll::{self},
         Waker,
     },
-    thread::{self, current, park},
+    thread::{self, park},
 };
 
 use crate::task::queued_task::{Task, TaskState, replace_state_locked, set_state_locked};
 
-pub(crate) struct Executor {
+pub struct Executor {
     pub task_queue: Mutex<Vec<Arc<Task>>>,
 
     //PERF: this field exists to avoid locking the queue twice per poll
     task_to_queue: Mutex<Option<Arc<Task>>>,
     thread: thread::Thread,
-    // TODO: refs to other executors
+    // TODO: refs to other executors for work stealing
 }
 
 impl Executor {
@@ -27,14 +27,6 @@ impl Executor {
             task_to_queue: Mutex::new(None),
             thread: thread::current(), //temp, might change in future
         };
-    }
-
-    // HACK:
-    pub fn update_thread(self: &mut Arc<Self>) {
-        let Some(executor) = Arc::get_mut(self) else {
-            panic!("temp error msg");
-        };
-        executor.thread = current();
     }
 
     fn wake(&self) {
@@ -53,6 +45,7 @@ impl Executor {
         loop {
             self.poll_task(&mut task_to_queue_lock);
         }
+        // TODO: add exit condition
     }
 
     pub fn push_task(&self, task: Arc<Task>) {
