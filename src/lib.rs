@@ -8,6 +8,7 @@ use std::{
 use crate::waker::blocking_waker::BlockingWaker;
 
 pub mod executor;
+pub mod reactor;
 pub mod waker;
 
 pub fn block_on(fut: impl Future<Output = ()>) {
