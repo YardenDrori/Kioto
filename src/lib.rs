@@ -7,6 +7,7 @@ use std::{
 
 use crate::waker::blocking_waker::BlockingWaker;
 
+pub mod error;
 pub(crate) mod executor;
 pub(crate) mod reactor;
 pub(crate) mod waker;
