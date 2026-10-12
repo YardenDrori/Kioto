@@ -1,19 +1,22 @@
-use crate::error::KiotoError;
+use std::io::Error;
+
+use libc::__errno_location;
+
+use crate::{error::KiotoError, reactor::error::ReactorError};
 
 pub struct EpollEventQueue {
     epoll_obj_fd: i32,
 }
 
-fn convert_error_codes(code: i32) -> KiotoError {
-    todo!()
-}
-
 impl EpollEventQueue {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, ReactorError> {
         unsafe {
             //EPOLL_CLOEXEC - if the process is overwritten eg fork exec free the epoll buffer
             let epoll_fd = libc::epoll_create1(libc::EPOLL_CLOEXEC);
-            EpollEventQueue { epoll_obj_fd: epoll_fd }
+            if epoll_fd == -1 {
+                return Err(ReactorError::IoError(Error::last_os_error()));
+            }
+            Ok(EpollEventQueue { epoll_obj_fd: epoll_fd })
         }
     }
 }
