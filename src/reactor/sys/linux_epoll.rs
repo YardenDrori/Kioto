@@ -1,11 +1,9 @@
-use std::io::Error;
+use std::{fs::File, io::Error, os::fd::FromRawFd};
 
-use libc::__errno_location;
-
-use crate::{error::KiotoError, reactor::error::ReactorError};
+use crate::reactor::error::ReactorError;
 
 pub struct EpollEventQueue {
-    epoll_obj_fd: i32,
+    epoll_fd: File,
 }
 
 impl EpollEventQueue {
@@ -16,7 +14,17 @@ impl EpollEventQueue {
             if epoll_fd == -1 {
                 return Err(ReactorError::IoError(Error::last_os_error()));
             }
-            Ok(EpollEventQueue { epoll_obj_fd: epoll_fd })
+
+            //we convert the raw fd to std's wrapper to use its Drop trait to free the memory when the
+            //epoll goes out of scope
+            let file = File::from_raw_fd(epoll_fd);
+            Ok(EpollEventQueue { epoll_fd: file })
         }
     }
+
+    pub fn register_event() -> Result<(), ReactorError> {
+        todo!()
+    }
+
+    pub fn wait_until_event_ready() {}
 }
