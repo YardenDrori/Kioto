@@ -1,5 +1,5 @@
 use std::{
-    pin::Pin,
+    pin::{self, Pin},
     sync::{Arc, Mutex, MutexGuard, Weak},
     task::Wake,
 };
@@ -42,9 +42,10 @@ pub fn replace_state_locked(
 }
 
 // TODO: push to the emptiest executor
-pub fn queue_new_task(fut: Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>, executor: &Arc<Executor>) {
+pub fn queue_new_task(fut: impl Future<Output = ()> + Send + 'static, executor: &Arc<Executor>) {
+    let pinned_fut = Box::pin(fut);
     let task = Arc::new(Task {
-        future: fut,
+        future: Mutex::new(pinned_fut),
         task_state: Mutex::new(TaskState::QUEUED),
         executor: Arc::downgrade(&executor),
     });
