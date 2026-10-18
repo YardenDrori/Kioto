@@ -10,6 +10,7 @@ use crate::waker::blocking_waker::BlockingWaker;
 pub mod error;
 pub(crate) mod executor;
 pub(crate) mod reactor;
+pub(crate) mod task;
 pub(crate) mod waker;
 
 ///takes an async function and blocks the current thread until its future is ready

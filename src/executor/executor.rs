@@ -3,12 +3,11 @@ use std::{
     task::{
         Context,
         Poll::{self},
-        Waker,
     },
     thread::{self, park},
 };
 
-use crate::waker::queued_task::{Task, TaskState, replace_state_locked, set_state_locked};
+use crate::task::task::{Task, TaskState};
 
 pub struct Executor {
     // TODO: change data structure
@@ -73,7 +72,7 @@ impl Executor {
         //the only reason i can think of is if, somehow, two executor threads owned the same task
         //and wanted to poll it at the same time, this blocks against that but A) how would that
         //even happen and B) is that it?
-        if !task.replace_state(TaskState::QUEUED, TaskState::RUNNING) {
+        if !task.compare_exchange_state(TaskState::QUEUED, TaskState::RUNNING) {
             return;
         }
 
@@ -83,27 +82,22 @@ impl Executor {
             "Queue had a task in a non queued status"
         );
 
-        let waker = Waker::from(task.clone());
+        let waker = task.waker();
 
-        let poll = task
-            .future
-            .lock()
-            .unwrap()
-            .as_mut()
-            .poll(&mut Context::from_waker(&waker));
+        let poll = task.poll(&mut Context::from_waker(&waker));
 
         match poll {
             Poll::Ready(_) => {
                 task.set_state(TaskState::DONE);
             }
             Poll::Pending => {
-                let mut lock = task.task_state.lock().unwrap();
-                if replace_state_locked(&mut lock, TaskState::ALERTED, TaskState::QUEUED) {
-                    drop(lock);
-                    *task_to_queue_ref = Some(task);
-                } else {
-                    set_state_locked(&mut lock, TaskState::IDLE);
-                }
+                task.update_state(|val| {
+                    if val == TaskState::ALERTED.into() {
+                        return TaskState::QUEUED.into();
+                    } else {
+                        return TaskState::IDLE.into();
+                    }
+                });
             }
         }
     }
