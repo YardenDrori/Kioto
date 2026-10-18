@@ -5,7 +5,7 @@ use std::{
 };
 
 pub struct Task {
-    future: Mutex<Pin<Box<dyn Future<Output = ()>>>>,
+    future: Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>, //this is send to move the task
     state: AtomicU8,
 }
 
@@ -36,8 +36,8 @@ impl From<u8> for TaskState {
 }
 
 impl Task {
-    fn new(fut: impl Future<Output = ()> + 'static, state: TaskState) -> Arc<Self> {
-        let dyn_fut: Pin<Box<dyn Future<Output = ()>>> = Box::pin(fut);
+    fn new(fut: impl Future<Output = ()> + 'static + Send, state: TaskState) -> Arc<Self> {
+        let dyn_fut: Pin<Box<dyn Future<Output = ()> + Send>> = Box::pin(fut);
         Arc::new(Task {
             future: Mutex::new(dyn_fut),
             state: AtomicU8::new(state.into()),
