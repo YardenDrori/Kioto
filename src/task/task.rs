@@ -12,11 +12,11 @@ pub struct Task {
 #[repr(u8)]
 #[derive(PartialEq)]
 pub enum TaskState {
-    QUEUED = 0,
-    RUNNING = 1,
-    ALERTED = 2,
-    IDLE = 3,
-    DONE = 4,
+    Queued = 0,
+    Running = 1,
+    Alerted = 2,
+    Idle = 3,
+    Done = 4,
 }
 
 impl From<TaskState> for u8 {
@@ -26,11 +26,14 @@ impl From<TaskState> for u8 {
 }
 
 impl From<u8> for TaskState {
-    fn from(value: u8) -> Self {
-        if value <= 4 {
-            unsafe { std::mem::transmute::<u8, TaskState>(value) }
-        } else {
-            panic!("invalid state value");
+    fn from(v: u8) -> Self {
+        match v {
+            0 => Self::Queued,
+            1 => Self::Running,
+            2 => Self::Alerted,
+            3 => Self::Idle,
+            4 => Self::Done,
+            _ => unreachable!("invalid task state {v}"),
         }
     }
 }
@@ -64,7 +67,7 @@ impl Task {
     }
 
     pub fn swap_state(&self, new_state: TaskState) -> TaskState {
-        AtomicU8::swap(&self.state, new_state.into(), std::sync::atomic::Ordering::Release).into()
+        AtomicU8::swap(&self.state, new_state.into(), std::sync::atomic::Ordering::AcqRel).into()
     }
 
     pub fn set_state(&self, new_state: TaskState) {
@@ -74,18 +77,21 @@ impl Task {
     pub fn update_state(&self, func: impl FnMut(u8) -> u8) {
         AtomicU8::update(
             &self.state,
-            std::sync::atomic::Ordering::Release,
+            std::sync::atomic::Ordering::AcqRel,
             std::sync::atomic::Ordering::Acquire,
             func,
         );
     }
 
-    pub fn try_update_state(&self, func: impl FnMut(u8) -> Option<u8>) {
-        AtomicU8::try_update(
+    pub fn try_update_state(&self, func: impl FnMut(u8) -> Option<u8>) -> Result<TaskState, TaskState> {
+        match AtomicU8::try_update(
             &self.state,
-            std::sync::atomic::Ordering::Release,
+            std::sync::atomic::Ordering::AcqRel,
             std::sync::atomic::Ordering::Acquire,
             func,
-        );
+        ) {
+            Ok(val) => return Ok(val.into()),
+            Err(val) => return Err(val.into()),
+        }
     }
 }

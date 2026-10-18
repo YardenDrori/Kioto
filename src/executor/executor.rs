@@ -72,13 +72,13 @@ impl Executor {
         //the only reason i can think of is if, somehow, two executor threads owned the same task
         //and wanted to poll it at the same time, this blocks against that but A) how would that
         //even happen and B) is that it?
-        if !task.compare_exchange_state(TaskState::QUEUED, TaskState::RUNNING) {
+        if !task.compare_exchange_state(TaskState::Queued, TaskState::Running) {
             return;
         }
 
-        let old_state = task.swap_state(TaskState::RUNNING);
+        let old_state = task.swap_state(TaskState::Running);
         debug_assert!(
-            old_state == TaskState::QUEUED,
+            old_state == TaskState::Queued,
             "Queue had a task in a non queued status"
         );
 
@@ -88,16 +88,14 @@ impl Executor {
 
         match poll {
             Poll::Ready(_) => {
-                task.set_state(TaskState::DONE);
+                task.set_state(TaskState::Done);
             }
             Poll::Pending => {
-                task.update_state(|val| {
-                    if val == TaskState::ALERTED.into() {
-                        return TaskState::QUEUED.into();
-                    } else {
-                        return TaskState::IDLE.into();
-                    }
-                });
+                if !task.compare_exchange_state(TaskState::Running, TaskState::Idle) {
+                    //task was awoken mid poll
+                    task.set_state(TaskState::Queued);
+                    self.push_task(task);
+                }
             }
         }
     }
